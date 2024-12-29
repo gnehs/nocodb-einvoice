@@ -12,10 +12,6 @@ function log(...args) {
 export async function syncEinvoice() {
   const browser = await puppeteer.launch({
     headless: true,
-    executablePath:
-      process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD === "true"
-        ? "/usr/bin/google-chrome"
-        : "",
   });
   const page = await browser.newPage();
 
