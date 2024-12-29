@@ -2,6 +2,13 @@
 FROM node:22
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
+ENV TZ=Asia/Taipei
+ENV NOCODB_URL=""
+ENV NOCODB_API_KEY=""
+ENV NOCODB_BASE_ID=""
+ENV EINVOICE_USERNAME=""
+ENV EINVOICE_PASSWORD=""
+ENV CRON_SCHEDULE="0 3 * * *"
 
 # Install latest chrome dev package and fonts to support major charsets (Chinese, Japanese, Arabic, Hebrew, Thai and a few others)
 # Note: this installs the necessary libs to make the bundled version of Chrome for Testing that Puppeteer
