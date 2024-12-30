@@ -190,7 +190,11 @@ async function syncMonthEinvoice(year, month) {
           credentials: "include",
         }
       ).then((x) => x.json());
-      await createInvoice(item.invoiceNumber, invoiceData, invoiceDetail);
+      await createInvoice(
+        item.invoiceNumber,
+        invoiceData,
+        invoiceDetail.content
+      );
       log(`- 發票 ${item.invoiceNumber} 新增成功`);
     }
     currentPage++;
