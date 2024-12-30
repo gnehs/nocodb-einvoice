@@ -57,6 +57,13 @@ async function login() {
         }
       ).then((x) => x.json());
       if (
+        loginResponse?.title?.startsWith(
+          "The username or password is incorrect"
+        )
+      ) {
+        throw new Error("The username or password is incorrect");
+      }
+      if (
         loginResponse.title !==
           "Image verification code verification failed." &&
         loginResponse?.redirectTo
