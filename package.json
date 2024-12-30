@@ -16,9 +16,7 @@
     "jimp": "^0.22.10",
     "nocodb-sdk": "^0.258.10",
     "node-cron": "^3.0.3",
-    "onnxruntime-node": "^1.20.1",
-    "puppeteer": "^23.11.1",
-    "puppeteer-extra": "^3.3.6",
-    "puppeteer-extra-plugin-stealth": "^2.11.2"
+    "node-fetch-cookies": "^2.1.1",
+    "onnxruntime-node": "^1.20.1"
   }
 }

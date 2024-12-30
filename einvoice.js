@@ -1,71 +1,197 @@
 import "dotenv/config";
-import { setTimeout } from "node:timers/promises";
-import puppeteer from "puppeteer-extra";
-import StealthPlugin from "puppeteer-extra-plugin-stealth";
+import { fetch, CookieJar } from "node-fetch-cookies";
 import { classifyImage } from "./ocr.js";
 import { createInvoice, isInvoiceExists } from "./db.js";
-const MAX_CAPTCHA_RETRY = 10;
-puppeteer.use(StealthPlugin());
 function log(...args) {
   console.log(new Date().toLocaleTimeString(), `[發票]`, ...args);
 }
-export async function syncEinvoice() {
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-    ],
-  });
-  const page = await browser.newPage();
+const MAX_CAPTCHA_RETRY = 5;
+let cookieJar = new CookieJar();
+const headers = {
+  "Content-Type": "application/json",
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3",
+};
 
-  await page.goto(
-    "https://service-mc.einvoice.nat.gov.tw/act/login/api/proxy/login"
+async function login() {
+  let CAPTCHA_RETRY = 0;
+  let code;
+
+  const { url } = await fetch(
+    cookieJar,
+    `https://service-mc.einvoice.nat.gov.tw/act/login/api/proxy/login`,
+    {
+      redirect: "follow",
+      follow: 2,
+    }
   );
-  let captchaRetry = 0;
-  while (captchaRetry < MAX_CAPTCHA_RETRY) {
-    await page.waitForNetworkIdle();
-    const captchaChallenge = await page.evaluate(() => {
-      const img = document.querySelector("img[src^='data:image/png;base64']");
-      return img.src;
-    });
-    const code = await classifyImage(
-      Buffer.from(captchaChallenge.split(",")[1], "base64")
-    );
+  const loginChallenge = url.split("?login_challenge=")[1];
+  while (CAPTCHA_RETRY < MAX_CAPTCHA_RETRY) {
+    const { token, image } = await fetch(
+      cookieJar,
+      "https://service-mc.einvoice.nat.gov.tw/act/login/api/act002i/captcha"
+    ).then((x) => x.json());
+    code = await classifyImage(Buffer.from(image, "base64"));
     if (code.match(/^\d{5}$/) && code.trim().length === 5) {
       log(`測試驗證碼：${code}`);
-      await page.type("#captcha", code);
-      await page.type("#mobile_phone", process.env.EINVOICE_USERNAME);
-      await page.type("#password", process.env.EINVOICE_PASSWORD);
-      await page.click("button[type='submit']");
-      await page.waitForNetworkIdle();
-      const toastMessage = await page.evaluate(() => {
-        return document.querySelector(".toast_box .toast-body")?.innerText;
-      });
+
+      const loginResponse = await fetch(
+        cookieJar,
+        "https://service-mc.einvoice.nat.gov.tw/act/login/api/client/doLogin",
+        {
+          headers,
+          referrer: `https://www.einvoice.nat.gov.tw/accounts/login/mw?login_challenge=${loginChallenge}`,
+          referrerPolicy: "no-referrer-when-downgrade",
+          body: JSON.stringify({
+            loginType: "U",
+            userType: "MW",
+            loginChallenge,
+            captchaToken: token,
+            captcha: code,
+            customId: process.env.EINVOICE_USERNAME,
+            password: process.env.EINVOICE_PASSWORD,
+          }),
+          method: "POST",
+          mode: "cors",
+          credentials: "include",
+        }
+      ).then((x) => x.json());
       if (
-        toastMessage &&
-        !toastMessage.includes("驗證碼（密碼）逾180天未變更")
+        loginResponse.title !==
+          "Image verification code verification failed." &&
+        loginResponse?.redirectTo
       ) {
-        if (toastMessage.includes("圖形驗證碼驗證失敗")) {
-          console.log(`retrying captcha`);
-        }
-        if (toastMessage.includes("使用者帳號或密碼錯誤")) {
-          throw new Error("invalid username or password");
-        }
-      } else {
+        await fetch(cookieJar, loginResponse?.redirectTo, {
+          headers,
+          referrer: `https://www.einvoice.nat.gov.tw/accounts/login/mw?login_challenge=${loginChallenge}`,
+          referrerPolicy: "no-referrer-when-downgrade",
+        });
         log("登入成功");
-        await page.waitForNetworkIdle();
         break;
       }
-      captchaRetry++;
+      log("測試新的驗證碼");
     }
-    await page.click('button[aria-label="更新圖形驗證碼"]');
-    await page.waitForNetworkIdle();
+    CAPTCHA_RETRY++;
   }
-  if (captchaRetry === MAX_CAPTCHA_RETRY) {
+  if (CAPTCHA_RETRY >= MAX_CAPTCHA_RETRY) {
     throw new Error("已達到最大驗證碼嘗試次數，不建議繼續");
   }
+}
+async function syncMonthEinvoice(year, month) {
+  let sid = [...cookieJar.cookiesDomain("service-mc.einvoice.nat.gov.tw")].find(
+    (cookie) => cookie.name === "sid"
+  ).value;
+
+  const date = new Date();
+  const currentYear = date.getFullYear();
+  const currentMonth = date.getMonth() + 1;
+  const lastDay =
+    currentMonth === month && currentYear === year
+      ? date.getDate()
+      : new Date(year, month, 0).getDate();
+  const searchStartDate = `${year}-${month
+    .toString()
+    .padStart(2, "0")}-01T00:00:00.000Z`;
+  const searchEndDate = `${year}-${month
+    .toString()
+    .padStart(2, "0")}-${lastDay}T00:00:00.000Z`;
+  const token = await fetch(
+    cookieJar,
+    "https://service-mc.einvoice.nat.gov.tw/btc/cloud/api/btc502w/getSearchCarrierInvoiceListJWT",
+    {
+      headers: {
+        ...headers,
+        Authorization: `Bearer ${sid}`,
+      },
+      referrer:
+        "https://www.einvoice.nat.gov.tw/portal/btc/mobile/btc502w/search",
+      referrerPolicy: "no-referrer-when-downgrade",
+      body: JSON.stringify({
+        cardCode: "",
+        carrierId2: "",
+        searchStartDate,
+        searchEndDate,
+        invoiceStatus: "all",
+        isSearchAll: "true",
+      }),
+      method: "POST",
+    }
+  ).then((x) => x.text());
+  let totalPages = 0;
+  let currentPage = 0;
+  do {
+    const searchCarrierInvoice = await fetch(
+      cookieJar,
+      `https://service-mc.einvoice.nat.gov.tw/btc/cloud/api/btc502w/searchCarrierInvoice?page=${currentPage}&size=100`,
+      {
+        headers: {
+          ...headers,
+          Authorization: `Bearer ${sid}`,
+        },
+        referrer:
+          "https://www.einvoice.nat.gov.tw/portal/btc/mobile/btc502w/detail",
+        referrerPolicy: "no-referrer-when-downgrade",
+        body: JSON.stringify({ token }),
+        method: "POST",
+      }
+    ).then((x) => x.json());
+    if (
+      searchCarrierInvoice.title === "Session has expired, please try again."
+    ) {
+      throw new Error("Session has expired, please try again.");
+    }
+
+    totalPages = searchCarrierInvoice.totalPages;
+
+    log(`- 正在取得第 ${currentPage + 1}/${totalPages} 頁發票`);
+    for (let item of searchCarrierInvoice.content) {
+      if (await isInvoiceExists(item.invoiceNumber)) {
+        log(`- 發票 ${item.invoiceNumber} 已存在`);
+        continue;
+      }
+      const invoiceData = await fetch(
+        cookieJar,
+        "https://service-mc.einvoice.nat.gov.tw/btc/cloud/api/common/getCarrierInvoiceData",
+        {
+          headers: {
+            ...headers,
+            Authorization: `Bearer ${sid}`,
+          },
+          referrer:
+            "https://www.einvoice.nat.gov.tw/portal/btc/mobile/btc502w/detail",
+          referrerPolicy: "no-referrer-when-downgrade",
+          body: JSON.stringify(item.token),
+          method: "POST",
+          mode: "cors",
+          credentials: "include",
+        }
+      ).then((x) => x.json());
+      const invoiceDetail = await fetch(
+        cookieJar,
+        "https://service-mc.einvoice.nat.gov.tw/btc/cloud/api/common/getCarrierInvoiceDetail?page=0&size=10",
+        {
+          headers: {
+            ...headers,
+            Authorization: `Bearer ${sid}`,
+          },
+          referrer:
+            "https://www.einvoice.nat.gov.tw/portal/btc/mobile/btc502w/detail",
+          referrerPolicy: "no-referrer-when-downgrade",
+          body: JSON.stringify(item.token),
+          method: "POST",
+          mode: "cors",
+          credentials: "include",
+        }
+      ).then((x) => x.json());
+      await createInvoice(item.invoiceNumber, invoiceData, invoiceDetail);
+      log(`- 發票 ${item.invoiceNumber} 新增成功`);
+    }
+    currentPage++;
+  } while (currentPage + 1 < totalPages);
+}
+export async function syncEinvoice() {
+  await login();
+  // get sid value
 
   const date = new Date();
   const currentYear = date.getFullYear();
@@ -85,107 +211,28 @@ export async function syncEinvoice() {
       });
     }
   }
+  let SYNC_RETRY = 0;
   for (const { year, month } of checkList) {
-    log(`- 正在取得 ${year} 年 ${month} 月發票`);
-    await page.goto(
-      `https://www.einvoice.nat.gov.tw/portal/btc/mobile/btc502w`
-    );
-    await page.waitForNetworkIdle();
-    await page.waitForSelector(`[name="searchInvoiceDate"]`);
-    await page.tap(`[name="searchInvoiceDate"]`);
-    await setTimeout(100);
+    while (SYNC_RETRY < 3) {
+      try {
+        log(`正在同步 ${year} 年 ${month} 月發票`);
+        await syncMonthEinvoice(year, month);
+        break;
+      } catch (error) {
+        SYNC_RETRY++;
+        log(`同步 ${year} 年 ${month} 月發票失敗: ${error.message}`);
 
-    await page.waitForSelector(`[aria-label="月份設定"]`);
-    await page.tap(`[aria-label="月份設定"]`);
-    await setTimeout(100);
-
-    await page.tap(`[data-test="${month}月"]`);
-    await setTimeout(100);
-
-    await page.tap(`[aria-label="年份設定"]`);
-    await setTimeout(100);
-
-    await page.tap(`[data-test="${year}"]`);
-    await setTimeout(100);
-
-    const lastDay =
-      currentMonth === month && currentYear === year
-        ? date.getDate()
-        : new Date(year, month, 0).getDate();
-
-    await page.tap(`[id="${year}-${month.toString().padStart(2, "0")}-01"]`);
-    await page.tap(
-      `[id="${year}-${month.toString().padStart(2, "0")}-${lastDay
-        .toString()
-        .padStart(2, "0")}"]`
-    );
-
-    await page.click(`[aria-label="查詢"]`);
-    await page.waitForNetworkIdle();
-    await setTimeout(100);
-
-    // change SelectSizes select to 100
-    // await page.select(`#SelectSizes`, "100");
-    // await setTimeout(100);
-    // await page.click(`#SelectSizes+button`);
-
-    const pages = await page.evaluate(() => {
-      return [
-        ...document.querySelectorAll(
-          `.pagination .pagination :nth-child(11) select#SelectPages option:not([value=""])`
-        ),
-      ].map((el) => el.value);
-    });
-    for (const currentPage of pages) {
-      log(`- 正在取得第 ${parseInt(currentPage) + 1}/${pages.length} 頁發票`);
-      await page.select(`#SelectPages`, currentPage.toString());
-      await page.click(`#SelectPages+button`);
-
-      const invoices = await page
-        .waitForResponse(
-          (resp) =>
-            resp
-              .url()
-              .startsWith(
-                `https://service-mc.einvoice.nat.gov.tw/btc/cloud/api/btc502w/searchCarrierInvoice`
-              ) &&
-            resp.status() === 200 &&
-            resp.request().method() === "POST"
-        )
-        .then((resp) => resp.json());
-
-      for (let item of invoices.content) {
-        if (await isInvoiceExists(item.invoiceNumber)) {
-          log(`- 發票 ${item.invoiceNumber} 已存在`);
-          continue;
-        }
-        const invoiceData = await fetch(
-          "https://service-mc.einvoice.nat.gov.tw/btc/cloud/api/common/getCarrierInvoiceData",
-          {
-            referrerPolicy: "no-referrer-when-downgrade",
-            body: JSON.stringify(item.token),
-            method: "POST",
-          }
-        ).then((response) => response.json());
-        const invoiceDetail = await fetch(
-          "https://service-mc.einvoice.nat.gov.tw/btc/cloud/api/common/getCarrierInvoiceDetail?page=0&size=100",
-          {
-            referrerPolicy: "no-referrer-when-downgrade",
-            body: JSON.stringify(item.token),
-            method: "POST",
-          }
-        )
-          .then((response) => response.json())
-          .then((data) => data.content);
-        await createInvoice(item.invoiceNumber, invoiceData, invoiceDetail);
-        log(`+ 已新增發票 ${item.invoiceNumber}`);
+        cookieJar = new CookieJar();
+        await login();
       }
-
-      await page.waitForNetworkIdle();
-      await setTimeout(100);
     }
-
-    await setTimeout(500);
+    if (SYNC_RETRY >= 3) {
+      break;
+    }
   }
-  await browser.close();
+  if (SYNC_RETRY >= 3) {
+    log(`已達到最大同步次數，不建議繼續`);
+  } else {
+    log(`同步完成`);
+  }
 }
