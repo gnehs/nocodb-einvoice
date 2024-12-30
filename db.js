@@ -268,8 +268,11 @@ export async function createInvoice(invoiceId, invoiceData, invoiceDetails) {
   }
 }
 export async function isInvoiceExists(invoiceId) {
+  if (!invoiceTableId || invoiceDetailTableId) {
+    await getDBInfo();
+  }
   try {
-    const existingInvoice = await fetch(
+    return await fetch(
       `${process.env.NOCODB_URL}/api/v2/tables/${invoiceTableId}/records?where=(invoice_id,eq,${invoiceId})`,
       {
         headers: {
@@ -279,8 +282,7 @@ export async function isInvoiceExists(invoiceId) {
       }
     )
       .then((res) => res.json())
-      .then((data) => data.list?.[0]);
-    return !!existingInvoice;
+      .then((x) => x.list.length > 0);
   } catch (error) {
     logError(error);
     throw new Error(`查詢發票 ${invoiceId} 失敗: ${error.message}`);

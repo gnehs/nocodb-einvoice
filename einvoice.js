@@ -5,7 +5,7 @@ import { createInvoice, isInvoiceExists } from "./db.js";
 function log(...args) {
   console.log(new Date().toLocaleTimeString(), `[發票]`, ...args);
 }
-const MAX_CAPTCHA_RETRY = 5;
+const MAX_CAPTCHA_RETRY = 10;
 let cookieJar = new CookieJar();
 const headers = {
   "Content-Type": "application/json",
@@ -77,8 +77,8 @@ async function login() {
         break;
       }
       log("測試新的驗證碼");
+      CAPTCHA_RETRY++;
     }
-    CAPTCHA_RETRY++;
   }
   if (CAPTCHA_RETRY >= MAX_CAPTCHA_RETRY) {
     throw new Error("已達到最大驗證碼嘗試次數，不建議繼續");
