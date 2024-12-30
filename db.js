@@ -18,7 +18,7 @@ function logError(error) {
     response: error.response?.data,
   });
 }
-let invoiceTableId, invoiceDetailTableId, linkFieldId;
+let invoiceTableId, invoiceDetailTableId;
 export async function getDBInfo() {
   try {
     const { list } = await api.dbTable.list(process.env.NOCODB_BASE_ID);
@@ -195,9 +195,6 @@ export async function getDBInfo() {
       invoiceTableId = invoiceTable.id;
       invoiceDetailTableId = detailTable.id;
     }
-    linkFieldId = (await api.dbTable.read(invoiceTableId)).columns.find(
-      (x) => x.title === "details"
-    ).id;
   } catch (error) {
     logError(error);
     throw new Error(`取得資料庫資訊失敗: ${error.message}`);
