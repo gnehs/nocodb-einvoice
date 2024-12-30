@@ -26,4 +26,4 @@
     -e CRON_SCHEDULE="0 3 * * *" \
     ghcr.io/gnehs/nocodb-einvoice:latest
   ```
-- 程式將自動建立相關資料表，請勿修改資料表名稱
+  > 程式將自動建立相關資料表，請勿修改資料表與欄位名稱
