@@ -1,4 +1,6 @@
-# Nocodb-einvoice
+<img width="960"   src="https://github.com/user-attachments/assets/7146aa39-1938-4c05-955f-4b021b3e90b7" />
+
+# NocoDB einvoice
 
 自動匯入台灣電子發票到 NocoDB
 
