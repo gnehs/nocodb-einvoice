@@ -92,16 +92,14 @@ async function syncMonthEinvoice(year, month) {
   const date = new Date();
   const currentYear = date.getFullYear();
   const currentMonth = date.getMonth() + 1;
-  const lastDay =
-    currentMonth === month && currentYear === year
-      ? date.getDate()
-      : new Date(year, month, 0).getDate();
+  const lastDay = new Date(year, month, 0).getDate();
   const searchStartDate = `${year}-${month
     .toString()
     .padStart(2, "0")}-01T00:00:00.000Z`;
-  const searchEndDate = `${year}-${month
-    .toString()
-    .padStart(2, "0")}-${lastDay}T00:00:00.000Z`;
+  const searchEndDate =
+    currentMonth === month && currentYear === year
+      ? new Date().toISOString()
+      : `${year}-${month.toString().padStart(2, "0")}-${lastDay}T00:00:00.000Z`;
   const token = await fetch(
     cookieJar,
     "https://service-mc.einvoice.nat.gov.tw/btc/cloud/api/btc502w/getSearchCarrierInvoiceListJWT",
