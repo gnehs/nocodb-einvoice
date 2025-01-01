@@ -4,14 +4,27 @@
 
 自動匯入台灣電子發票到 NocoDB
 
-## Env
+## 環境變數
+
+### 必填
 
 - `NOCODB_URL`: NocoDB 的 URL
 - `NOCODB_API_KEY`: NocoDB 的 API Key
 - `NOCODB_BASE_ID`: NocoDB 的 Base ID （可以在瀏覽器的網址列中找到）
 - `EINVOICE_USERNAME`: 電子發票的帳號（電話號碼）
 - `EINVOICE_PASSWORD`: 電子發票的密碼（又稱驗證碼）
-- `CRON_SCHEDULE`: 定時任務的時間設定，可參考 [Cron](https://crontab.guru/) 了解如何設定
+
+### 選填
+
+- `CRON_SCHEDULE`
+  - 預設值：`0 3 * * *`，每天凌晨 3 點執行
+  - 定時任務的時間設定，可參考 [crontab.guru](https://crontab.guru/) 了解如何設定
+- `MAX_SYNC_MONTHS`
+  - 預設值：無限制
+  - 同步的最大月份，預設同步可查詢到的全部發票，建議在首次同步後設定此值為 `3`，以避免同步過多資料
+- `REQUEST_DELAY`
+  - 預設值：`1000` 毫秒，即 1 秒
+  - 每個請求之間的延遲（毫秒），避免造成電子發票系統的負擔
 
 ## 開始使用
 

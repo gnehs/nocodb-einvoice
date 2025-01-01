@@ -2,10 +2,15 @@ import "dotenv/config";
 import { fetch, CookieJar } from "node-fetch-cookies";
 import { classifyImage } from "./ocr.js";
 import { createInvoice, isInvoiceExists } from "./db.js";
+import { setTimeout } from "timers/promises";
+
+const REQUEST_TIMEOUT = process.env.REQUEST_TIMEOUT || 1000;
+const MAX_CAPTCHA_RETRY = 10;
+const MAX_SYNC_MONTHS = process.env.MAX_SYNC_MONTHS;
+
 function log(...args) {
   console.log(new Date().toLocaleTimeString(), `[發票]`, ...args);
 }
-const MAX_CAPTCHA_RETRY = 10;
 let cookieJar = new CookieJar();
 const headers = {
   "Content-Type": "application/json",
@@ -27,6 +32,7 @@ async function login() {
   );
   const loginChallenge = url.split("?login_challenge=")[1];
   while (CAPTCHA_RETRY < MAX_CAPTCHA_RETRY) {
+    await setTimeout(REQUEST_TIMEOUT);
     const { token, image } = await fetch(
       cookieJar,
       "https://service-mc.einvoice.nat.gov.tw/act/login/api/act002i/captcha"
@@ -35,6 +41,7 @@ async function login() {
     if (code.match(/^\d{5}$/) && code.trim().length === 5) {
       log(`測試驗證碼：${code}`);
 
+      await setTimeout(REQUEST_TIMEOUT);
       const loginResponse = await fetch(
         cookieJar,
         "https://service-mc.einvoice.nat.gov.tw/act/login/api/client/doLogin",
@@ -68,6 +75,7 @@ async function login() {
           "Image verification code verification failed." &&
         loginResponse?.redirectTo
       ) {
+        await setTimeout(REQUEST_TIMEOUT);
         await fetch(cookieJar, loginResponse?.redirectTo, {
           headers,
           referrer: `https://www.einvoice.nat.gov.tw/accounts/login/mw?login_challenge=${loginChallenge}`,
@@ -100,6 +108,7 @@ async function syncMonthEinvoice(year, month) {
     currentMonth === month && currentYear === year
       ? new Date().toISOString()
       : `${year}-${month.toString().padStart(2, "0")}-${lastDay}T00:00:00.000Z`;
+  await setTimeout(REQUEST_TIMEOUT);
   const token = await fetch(
     cookieJar,
     "https://service-mc.einvoice.nat.gov.tw/btc/cloud/api/btc502w/getSearchCarrierInvoiceListJWT",
@@ -125,6 +134,7 @@ async function syncMonthEinvoice(year, month) {
   let totalPages = 0;
   let currentPage = 0;
   do {
+    await setTimeout(REQUEST_TIMEOUT);
     const searchCarrierInvoice = await fetch(
       cookieJar,
       `https://service-mc.einvoice.nat.gov.tw/btc/cloud/api/btc502w/searchCarrierInvoice?page=${currentPage}&size=100`,
@@ -151,9 +161,10 @@ async function syncMonthEinvoice(year, month) {
     log(`- 正在取得第 ${currentPage + 1}/${totalPages} 頁發票`);
     for (let item of searchCarrierInvoice.content) {
       if (await isInvoiceExists(item.invoiceNumber)) {
-        log(`- 發票 ${item.invoiceNumber} 已存在`);
+        // 發票已存在
         continue;
       }
+      await setTimeout(REQUEST_TIMEOUT);
       const invoiceData = await fetch(
         cookieJar,
         "https://service-mc.einvoice.nat.gov.tw/btc/cloud/api/common/getCarrierInvoiceData",
@@ -171,6 +182,7 @@ async function syncMonthEinvoice(year, month) {
           credentials: "include",
         }
       ).then((x) => x.json());
+      await setTimeout(REQUEST_TIMEOUT);
       const invoiceDetail = await fetch(
         cookieJar,
         "https://service-mc.einvoice.nat.gov.tw/btc/cloud/api/common/getCarrierInvoiceDetail?page=0&size=10",
@@ -205,7 +217,10 @@ export async function syncEinvoice() {
   const date = new Date();
   const currentYear = date.getFullYear();
   const currentMonth = date.getMonth() + 1;
-  const maxMonth = currentMonth % 2 === 0 ? 8 : 9;
+  let maxMonth = currentMonth % 2 === 0 ? 8 : 9;
+  if (MAX_SYNC_MONTHS) {
+    maxMonth = Math.min(maxMonth, MAX_SYNC_MONTHS);
+  }
   const checkList = [];
   for (let i = 0; i < maxMonth; i++) {
     if (currentMonth - i <= 0) {
