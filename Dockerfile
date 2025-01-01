@@ -12,8 +12,8 @@ COPY pnpm-lock.yaml .
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --prod --frozen-lockfile
 
 FROM base
-COPY . .
 COPY --from=prod-deps /app/node_modules /app/node_modules
+COPY . .
 
 ENV NOCODB_URL=""
 ENV NOCODB_API_KEY=""
