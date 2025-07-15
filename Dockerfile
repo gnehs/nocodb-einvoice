@@ -23,4 +23,4 @@ ENV EINVOICE_PASSWORD=""
 ENV CRON_SCHEDULE="0 3 * * *"
 ENV REQUEST_DELAY="1000"
 
-CMD ["pnpm", "start"]
+CMD ["node", "index.js"]
